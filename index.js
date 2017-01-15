@@ -33,7 +33,9 @@ function Component(name, is_ready) {
 	const components = new Set();
 	/* "Ready" promise */
 	let ready_res, ready_rej;
-	let ready = new Promise((res, rej) => { ready_res = res; ready_rej = rej; });
+	let ready = false;
+	let ready_promise = new Promise((res, rej) => { ready_res = res; ready_rej = rej; })
+		.then(data => { ready = true; return data; });
 	/* "close" can only be called once */
 	let closed = false;
 
@@ -90,6 +92,8 @@ function Component(name, is_ready) {
 				console.info(`Component failed to initialise: [${$component.name}]`, err);
 			}
 		}
+		/* Add a null catcher to avoid UnhandledPromiseRejectionWarning */
+		ready_promise.catch(() => null);
 		ready_rej(err);
 		this.close();
 	};
@@ -111,8 +115,7 @@ function Component(name, is_ready) {
 		if (Component.debug) {
 			console.info(`Closing component [${$component.name}]`);
 		}
-		ready.then(() => null, () => null);
-		ready_rej(new Error('Closing'));
+		ready_promise.then(() => null, () => null);
 		try {
 			this.emit('close');
 		} finally {
@@ -130,7 +133,7 @@ function Component(name, is_ready) {
 	};
 
 	const wait_for_ready = () =>
-		Promise.all([ready, ...[...components].map(component => component.wait_for_ready())]);
+		Promise.all([ready_promise, ...[...components].map(component => component.wait_for_ready())]);
 
 	const warn = data => this.emit('warn', _.assign({ type: 'warn', source: this }, data));
 	const info = data => this.emit('info', _.assign({ type: 'info', source: this }, data));
