@@ -2,11 +2,13 @@
  * A component is an event emitter.
  * It may own zero or more other components.
  * Components may be bound and later unbound to/from parent.
- * Weak-bound components do not close thier parent when they are closed.
- * Weak-bound components do not propagate errors to their parent by default.
- * Components unbind from their parent (if any) when closed.
- * A component may automatically be "ready" when created, or may become ready later by calling ".ready".
- * ".wait_for_ready" waits until the component and all of its subcomponents are ready.
+ * Component may only be bound to at most one other component (the parent).
+ * Weak-bound components do not close their parent when they are closed.
+ * Errors in subcomponents are propagated to their parent as warnings.
+ * Warnings and Information (events "info" and "warn") are propagated to the parent.
+ * Components automatically unbind from their parent (if any) when closed.
+ * A component may automatically be "ready" when created, or may become ready later by calling $component.ready().
+ * wait_for_ready() waits until the component and all of its subcomponents are ready.
  */
 const _ = require('lodash');
 const EventEmitter = require('eventemitter');
@@ -130,6 +132,9 @@ function Component(name, is_ready) {
 	const wait_for_ready = () =>
 		Promise.all([ready, ...[...components].map(component => component.wait_for_ready())]);
 
+	const warn = data => this.emit('warn', _.assign({ type: 'warn', source: this }, data));
+	const info = data => this.emit('info', _.assign({ type: 'info', source: this }, data));
+
 	$component = {
 		bound: false,
 		/* Name of this component */
@@ -141,7 +146,7 @@ function Component(name, is_ready) {
 		/* Recursively bind an event of all subcomponents to this one */
 		link_event,
 		/* Resolves when component and all subcomponents are ready */
-		wait_for_ready: wait_for_ready,
+		wait_for_ready,
 		/* Call when component is ready */
 		ready: set_ready,
 		/* Call if component fails to become ready */
@@ -154,9 +159,11 @@ function Component(name, is_ready) {
 		children: components,
 		/* Bind events in a way that we can unbind automatically on close */
 		$on, $off,
+		/* Send a message which gets tagged with this object then propagated up the tree */
+		warn, info
 	};
 
-	const direct = { $on, $off, $component, bind, unbind, close, wait_for_ready };
+	const direct = { $on, $off, $component, bind, unbind, close, wait_for_ready, warn, info };
 	for (let key of Object.keys(direct)) {
 		let value = direct[key];
 		Object.defineProperty(this, key, { value });
@@ -193,6 +200,14 @@ function bind_child_to_parent(child, parent, weak) {
 			parent.on('close', on_parent_close);
 		}
 	}
+	parent.$on(child, 'warn', data => parent.emit('warn', data));
+	parent.$on(child, 'info', data => parent.emit('info', data));
+	parent.$on(child, 'error', error => {
+		if (Component.debug) {
+			console.info(`Propagating error from [${name(child)}] as warning to parent [${name(parent)}]`);
+		}
+		parent.warn({ type: 'subcomponent-error', error });
+	});
 	if (!weak) {
 		parent.$on(child, 'close', () => {
 			try {
@@ -201,14 +216,6 @@ function bind_child_to_parent(child, parent, weak) {
 				console.error(`Error occurred progagating close event from ${name(child)} up to parent ${name(parent)}:`, err);
 			}
 		});
-		const on_child_error = type => (...args) => {
-			if (Component.debug) {
-				console.info(`Propagating ${type} from [${name(child)}] to parent [${name(parent)}]`);
-			}
-			parent.emit('subcomponent-error', ...args);
-		};
-		parent.$on(child, 'error', on_child_error('error'));
-		parent.$on(child, 'subcomponent-error', on_child_error('subcomponent error'));
 	}
 }
 
@@ -295,7 +302,9 @@ function demo() {
 
 	console.log(tree(a));
 
-	a.on('error', () => console.log('Error trapped at root component'));
+	a.on('warn', msg => console.warn(`Warning "${msg.type}" received at root`));
+	a.on('info', msg => console.warn(`Infromation "${msg.message}" received at root`));
+	d.emit('info', { message: 'Some information' });
 	d.emit('error', 'lol');
 
 	a.close();
