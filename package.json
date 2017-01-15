@@ -1,0 +1,24 @@
+{
+  "name": "component",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/battlesnake/componentjs.git"
+  },
+  "author": "Mark K Cowan",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/battlesnake/componentjs/issues"
+  },
+  "homepage": "https://github.com/battlesnake/componentjs#readme",
+  "dependencies": {
+    "archy": "^1.0.0",
+    "event-manager": "github:battlesnake/eventmanagerjs",
+    "eventemitter": "github:battlesnake/eventemitter"
+  }
+}

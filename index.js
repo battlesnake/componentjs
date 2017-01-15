@@ -1,0 +1,306 @@
+/*
+ * A component is an event emitter.
+ * It may own zero or more other components.
+ * Components may be bound and later unbound to/from parent.
+ * Weak-bound components do not close thier parent when they are closed.
+ * Weak-bound components do not propagate errors to their parent by default.
+ * Components unbind from their parent (if any) when closed.
+ * A component may automatically be "ready" when created, or may become ready later by calling ".ready".
+ * ".wait_for_ready" waits until the component and all of its subcomponents are ready.
+ */
+const _ = require('lodash');
+const EventEmitter = require('eventemitter');
+const EventManager = require('event-manager');
+
+module.exports = Component;
+
+Component.prototype = new EventEmitter();
+
+Component.debug = false;
+
+Component.tree = tree;
+
+function Component(name, is_ready) {
+	EventEmitter.call(this);
+
+	if (arguments.length === 0) {
+		return this;
+	}
+
+	/* Subcomponents */
+	const components = new Set();
+	/* "Ready" promise */
+	let ready_res, ready_rej;
+	let ready = new Promise((res, rej) => { ready_res = res; ready_rej = rej; });
+	/* "close" can only be called once */
+	let closed = false;
+
+	/* Event manager, to avoid leaking handlers */
+	const events = new EventManager();
+	const $on = events.subscribe;
+	const $off = events.unsubscribe;
+
+	let $component;
+
+	const bind = (sub, weak) => {
+		if (!sub) {
+			throw new Error('Parameter cannot be null/undefined');
+		}
+		const data = sub.$component;
+		if (!data) {
+			return bind(new ComponentWrapper(sub));
+		}
+		if (data.bound) {
+			throw new Error(`Subcomponent [${data.name}] double-bound to [${name}]`);
+		}
+		components.add(sub);
+		data.bound = true;
+		data.parent = this;
+		bind_child_to_parent(sub, this, weak);
+	};
+
+	const unbind = sub => {
+		if (!sub) {
+			throw new Error('Parameter cannot be null/undefined');
+		}
+		const data = sub.$component;
+		if (!components.delete(sub)) {
+			throw new Error('Unbind failed, given component is not bound to this component');
+		}
+		data.bound = false;
+		data.parent = null;
+	};
+
+	const set_ready = () => {
+		if (Component.debug) {
+			console.info(`Component is internally ready: [${$component.name}]`);
+		}
+		ready_res();
+	};
+
+	const set_failed = err => {
+		if (ready) {
+			if (Component.debug) {
+				console.info(`Component failed: [${$component.name}]`, err);
+			}
+		} else {
+			if (Component.debug) {
+				console.info(`Component failed to initialise: [${$component.name}]`, err);
+			}
+		}
+		ready_rej(err);
+		this.close();
+	};
+
+	const link_event = (event, recurse) => {
+		components.forEach(component => {
+			$on(component, event, (...args) => this.emit(event, ...args));
+			if (recurse) {
+				component.$component.link_event(event);
+			}
+		});
+	};
+
+	const close = () => {
+		if (closed) {
+			return;
+		}
+		closed = true;
+		if (Component.debug) {
+			console.info(`Closing component [${$component.name}]`);
+		}
+		ready.then(() => null, () => null);
+		ready_rej(new Error('Closing'));
+		try {
+			this.emit('close');
+		} finally {
+			if (Component.debug) {
+				console.info(`Closed component [${$component.name}]`);
+			}
+			/* Unbind from parent */
+			if ($component.parent) {
+				$component.parent.unbind(this);
+			}
+			/* Unbind events */
+			this.removeAllListeners();
+			events.unsubscribe_all();
+		}
+	};
+
+	const wait_for_ready = () =>
+		Promise.all([ready, ...[...components].map(component => component.wait_for_ready())]);
+
+	$component = {
+		bound: false,
+		/* Name of this component */
+		name,
+		/* Add subcomponent */
+		bind,
+		/* Remove subcomponent */
+		unbind,
+		/* Recursively bind an event of all subcomponents to this one */
+		link_event,
+		/* Resolves when component and all subcomponents are ready */
+		wait_for_ready: wait_for_ready,
+		/* Call when component is ready */
+		ready: set_ready,
+		/* Call if component fails to become ready */
+		failed: set_failed,
+		/* Used when wrapping eventemitters */
+		target: this,
+		/* Parent component */
+		parent: null,
+		/* Subcomponents */
+		children: components,
+		/* Bind events in a way that we can unbind automatically on close */
+		$on, $off,
+	};
+
+	const direct = { $on, $off, $component, bind, unbind, close, wait_for_ready };
+	for (let key of Object.keys(direct)) {
+		let value = direct[key];
+		Object.defineProperty(this, key, { value });
+	}
+
+	this.on('error', set_failed);
+
+	if (Component.debug) {
+		console.info(`Creating component [${$component.name}]`);
+	}
+
+	if (is_ready) {
+		$component.ready();
+	}
+
+}
+
+function bind_child_to_parent(child, parent, weak) {
+	const name = obj => obj.$component ? obj.$component.name : obj.constructor ? obj.constructor.name : '?';
+	if (Component.debug) {
+		console.info(`${weak ? 'Weak' : 'Strong'}-binding [${name(child)}] to component [${name(parent)}]`);
+	}
+	if (child.close) {
+		const on_parent_close = () => {
+			try {
+				child.close();
+			} catch (err) {
+				console.error(`Error occurred progagating close event from ${name(parent)} down to child ${name(child)}:`, err);
+			}
+		};
+		if (child.$on) {
+			child.$on(parent, 'close', on_parent_close);
+		} else {
+			parent.on('close', on_parent_close);
+		}
+	}
+	if (!weak) {
+		parent.$on(child, 'close', () => {
+			try {
+				parent.close();
+			} catch (err) {
+				console.error(`Error occurred progagating close event from ${name(child)} up to parent ${name(parent)}:`, err);
+			}
+		});
+		const on_child_error = type => (...args) => {
+			if (Component.debug) {
+				console.info(`Propagating ${type} from [${name(child)}] to parent [${name(parent)}]`);
+			}
+			parent.emit('subcomponent-error', ...args);
+		};
+		parent.$on(child, 'error', on_child_error('error'));
+		parent.$on(child, 'subcomponent-error', on_child_error('subcomponent error'));
+	}
+}
+
+ComponentWrapper.prototype = new Component();
+function ComponentWrapper(obj, name) {
+	name = name || 'Wrapper';
+	Component.call(this, name);
+
+	bind_child_to_parent(obj, this, false);
+
+	/* Close the wrapper if the child errs */
+	this.$on(obj, 'error', () => this.close());
+
+	this.$component.target = obj;
+}
+
+/******************************************************************************/
+
+function tree(component, { upward, downward } = { upward: false, downward: true }) {
+	const children = [];
+	const t = component => component.$component.target === component ? '' : component.$component.target.constructor ? ' -> ' + component.$component.target.constructor.name : '?';
+	const x = (component, children) => ({
+		label: component.$component.name + t(component),
+		nodes: children
+	});
+	let tree = x(component, children);
+	if (upward && downward) {
+		tree.label += ' *';
+	}
+	if (upward) {
+		let iter = component;
+		while (iter) {
+			iter = iter.$component.parent;
+			if (iter) {
+				tree = x(iter, [tree]);
+			}
+		}
+	}
+	if (downward) {
+		const recurse = obj => x(obj, [...obj.$component.children].map(recurse));
+		children.push(...recurse(component).nodes);
+	}
+	const archy = require('archy');
+	return archy(tree);
+}
+
+/******************************************************************************/
+
+function demo() {
+	A.prototype = new Component();
+	A.prototype.constructor = A;
+	function A() {
+		Component.call(this, 'A', true);
+	}
+
+	B.prototype = new Component();
+	B.prototype.constructor = B;
+	function B() {
+		Component.call(this, 'B', true);
+	}
+
+	C.prototype = new Component();
+	C.prototype.constructor = C;
+	function C() {
+		Component.call(this, 'C', false);
+	}
+
+	D.prototype = new EventEmitter();
+	D.prototype.constructor = D;
+	function D() {
+		EventEmitter.call(this);
+	}
+
+	Component.debug = !module.parent;
+
+	const a = new A();
+	const b = new B();
+	const c = new C();
+	const d = new D();
+	a.bind(b);
+	a.bind(c);
+	b.bind(d);
+	c.$component.ready();
+
+	console.log(tree(a));
+
+	a.on('error', () => console.log('Error trapped at root component'));
+	d.emit('error', 'lol');
+
+	a.close();
+}
+
+if (!module.parent) {
+	demo();
+}
