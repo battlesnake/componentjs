@@ -32,19 +32,20 @@ function Component(name, is_ready) {
 	/* Subcomponents */
 	const components = new Set();
 	/* "Ready" promise */
-	let ready_res, ready_rej;
+	let ready_res;
+	let ready_rej;
 	let ready = false;
-	let ready_promise = new Promise((res, rej) => { ready_res = res; ready_rej = rej; })
+	const ready_promise = new Promise((res, rej) => { ready_res = res; ready_rej = rej; })
 		.then(data => { ready = true; return data; });
 	/* "close" can only be called once */
 	let closed = false;
+
+	let $component;
 
 	/* Event manager, to avoid leaking handlers */
 	const events = new EventManager();
 	const $on = events.subscribe;
 	const $off = events.unsubscribe;
-
-	let $component;
 
 	const bind = (sub, weak) => {
 		if (!sub) {
@@ -52,7 +53,8 @@ function Component(name, is_ready) {
 		}
 		const data = sub.$component;
 		if (!data) {
-			return bind(new ComponentWrapper(sub));
+			bind(new ComponentWrapper(sub));
+			return;
 		}
 		if (data.bound) {
 			throw new Error(`Subcomponent [${data.name}] double-bound to [${name}]`);
@@ -116,19 +118,26 @@ function Component(name, is_ready) {
 			console.info(`Closing component [${$component.name}]`);
 		}
 		ready_promise.then(() => null, () => null);
-		try {
-			this.emit('close');
-		} finally {
-			if (Component.debug) {
-				console.info(`Closed component [${$component.name}]`);
+		const do_close = () => {
+			try {
+				this.emit('close');
+			} finally {
+				if (Component.debug) {
+					console.info(`Closed component [${$component.name}]`);
+				}
+				/* Unbind from parent */
+				if ($component.parent) {
+					$component.parent.unbind(this);
+				}
+				/* Unbind events */
+				this.removeAllListeners();
+				events.unsubscribe_all();
 			}
-			/* Unbind from parent */
-			if ($component.parent) {
-				$component.parent.unbind(this);
-			}
-			/* Unbind events */
-			this.removeAllListeners();
-			events.unsubscribe_all();
+		};
+		if (this.close_async) {
+			this.close_async().catch(err => this.emit('error', err)).then(do_close);
+		} else {
+			do_close();
 		}
 	};
 
@@ -167,8 +176,8 @@ function Component(name, is_ready) {
 	};
 
 	const direct = { $on, $off, $component, bind, unbind, close, wait_for_ready, warn, info };
-	for (let key of Object.keys(direct)) {
-		let value = direct[key];
+	for (const key of Object.keys(direct)) {
+		const value = direct[key];
 		Object.defineProperty(this, key, { value });
 	}
 
@@ -239,21 +248,21 @@ function ComponentWrapper(obj, name) {
 
 function tree(component, { upward, downward } = { upward: false, downward: true }) {
 	const children = [];
-	const t = component => component.$component.target === component ? '' : component.$component.target.constructor ? ' -> ' + component.$component.target.constructor.name : '?';
-	const x = (component, children) => ({
-		label: component.$component.name + t(component),
-		nodes: children
+	const t = comp => comp.$component.target === comp ? '' : comp.$component.target.constructor ? ` -> ${comp.$component.target.constructor.name}` : '?';
+	const x = (comp, nodes) => ({
+		label: comp.$component.name + t(comp),
+		nodes
 	});
-	let tree = x(component, children);
+	let data = x(component, children);
 	if (upward && downward) {
-		tree.label += ' *';
+		data.label += ' *';
 	}
 	if (upward) {
 		let iter = component;
 		while (iter) {
 			iter = iter.$component.parent;
 			if (iter) {
-				tree = x(iter, [tree]);
+				data = x(iter, [tree]);
 			}
 		}
 	}
@@ -262,7 +271,7 @@ function tree(component, { upward, downward } = { upward: false, downward: true 
 		children.push(...recurse(component).nodes);
 	}
 	const archy = require('archy');
-	return archy(tree);
+	return archy(data);
 }
 
 /******************************************************************************/
