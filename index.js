@@ -218,7 +218,7 @@ function bind_child_to_parent(child, parent, weak) {
 		if (Component.debug) {
 			console.info(`Propagating error from [${name(child)}] as warning to parent [${name(parent)}]`);
 		}
-		parent.warn({ type: 'subcomponent-error', error });
+		parent.warn({ type: 'subcomponent-error', origin: child, error });
 	});
 	if (!weak) {
 		parent.$on(child, 'close', () => {
