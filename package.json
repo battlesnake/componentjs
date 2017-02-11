@@ -19,6 +19,7 @@
   "dependencies": {
     "archy": "^1.0.0",
     "event-manager": "github:battlesnake/eventmanagerjs",
-    "eventemitter": "github:battlesnake/eventemitter"
+    "eventemitter": "github:battlesnake/eventemitter",
+    "lodash": "^4.17.4"
   }
 }

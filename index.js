@@ -246,7 +246,8 @@ function ComponentWrapper(obj, name) {
 
 /******************************************************************************/
 
-function tree(component, { upward, downward, highlight } = { upward: false, downward: true, highlight: component }) {
+function tree(component, opts) {
+	const { upward, downward, highlight } = _.assign({ upward: false, downward: true, highlight: component }, opts);
 	const children = [];
 	const t = comp =>
 		comp.$component.target === comp ?
