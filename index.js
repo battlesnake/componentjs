@@ -246,11 +246,17 @@ function ComponentWrapper(obj, name) {
 
 /******************************************************************************/
 
-function tree(component, { upward, downward } = { upward: false, downward: true }) {
+function tree(component, { upward, downward, highlight } = { upward: false, downward: true, highlight: component }) {
 	const children = [];
-	const t = comp => comp.$component.target === comp ? '' : comp.$component.target.constructor ? ` -> ${comp.$component.target.constructor.name}` : '?';
+	const t = comp =>
+		comp.$component.target === comp ?
+			'' :
+			comp.$component.target.constructor ?
+				` -> ${comp.$component.target.constructor.name}` :
+				'?';
+	const hl = (comp, name) => comp === highlight ? `\x1b[1;3m${name}\x1b[0m` : name;
 	const x = (comp, nodes) => ({
-		label: comp.$component.name + t(comp),
+		label: hl(comp, comp.$component.name) + t(comp),
 		nodes
 	});
 	let data = x(component, children);
@@ -315,7 +321,7 @@ function demo() {
 	console.log(tree(a));
 
 	a.on('warn', msg => console.warn(`Warning "${msg.type}" received at root`));
-	a.on('info', msg => console.warn(`Infromation "${msg.message}" received at root`));
+	a.on('info', msg => console.warn(`Information "${msg.message}" received at root`));
 	d.emit('info', { message: 'Some information' });
 	d.emit('error', 'lol');
 
