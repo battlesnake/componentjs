@@ -168,6 +168,8 @@ function Component(name, is_ready) {
 		wait_for_ready,
 		/* Call when component is ready */
 		ready: set_ready,
+		/* Is this component ready (ignoring subcomponents)? */
+		self_is_ready: () => ready,
 		/* Call if component fails to become ready */
 		failed: set_failed,
 		/* Used when wrapping eventemitters */
@@ -254,7 +256,7 @@ function ComponentWrapper(obj, name) {
 /******************************************************************************/
 
 function tree(component, opts) {
-	const { upward, downward, highlight } = _.assign({ upward: false, downward: true, highlight: component }, opts);
+	const { upward, downward, highlight, ready } = _.assign({ upward: false, downward: true, highlight: component }, opts);
 	const children = [];
 	const t = comp =>
 		comp.$component.target === comp ?
@@ -262,7 +264,16 @@ function tree(component, opts) {
 			comp.$component.target.constructor ?
 				` -> ${comp.$component.target.constructor.name}` :
 				'?';
-	const hl = (comp, name) => comp === highlight ? `\x1b[1;3m${name}\x1b[0m` : name;
+	const hl = (comp, name) => {
+		const codes = [];
+		if (comp === highlight) {
+			codes.push(1, 3);
+		}
+		if (ready && !comp.$component.self_is_ready) {
+			codes.push(2, 9);
+		}
+		return codes.length ? `\x1b[${codes.join(';')}m${name}\x1b[0m` : name;
+	};
 	const x = (comp, nodes) => ({
 		label: hl(comp, comp.$component.name) + t(comp),
 		nodes
@@ -326,7 +337,7 @@ function demo() {
 	b.bind(d);
 	c.$component.ready();
 
-	console.log(tree(a));
+	console.log(tree(a, { ready: true }));
 
 	a.on('warn', msg => console.warn(`Warning "${msg.type}" received at root`));
 	a.on('info', msg => console.warn(`Information "${msg.message}" received at root`));
