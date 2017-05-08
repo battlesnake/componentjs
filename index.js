@@ -243,7 +243,7 @@ function bind_child_to_parent(child, parent, weak) {
 ComponentWrapper.prototype = new Component();
 function ComponentWrapper(obj, name) {
 	name = name || 'Wrapper';
-	Component.call(this, name);
+	Component.call(this, name, true);
 
 	bind_child_to_parent(obj, this, false);
 
