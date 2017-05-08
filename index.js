@@ -269,7 +269,7 @@ function tree(component, opts) {
 		if (comp === highlight) {
 			codes.push(1, 3);
 		}
-		if (ready && !comp.$component.self_is_ready) {
+		if (ready && !comp.$component.self_is_ready()) {
 			codes.push(2, 9);
 		}
 		return codes.length ? `\x1b[${codes.join(';')}m${name}\x1b[0m` : name;
