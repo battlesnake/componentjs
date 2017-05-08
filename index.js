@@ -147,10 +147,17 @@ function Component(name, is_ready) {
 	const warn = data => this.emit('warn', _.assign({ type: 'warn', source: this }, data));
 	const info = data => this.emit('info', _.assign({ type: 'info', source: this }, data));
 
+	const rename = new_name => {
+		if (Component.info) {
+			console.debug(`Renaming component [${$component.name}] to [${new_name}]`);
+		}
+		$component.name = new_name;
+	};
+
 	$component = {
 		bound: false,
 		/* Name of this component */
-		name,
+		name, rename,
 		/* Add subcomponent */
 		bind,
 		/* Remove subcomponent */
