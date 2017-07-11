@@ -182,7 +182,9 @@ function Component(name, is_ready) {
 		/* Bind events in a way that we can unbind automatically on close */
 		$on, $off,
 		/* Send a message which gets tagged with this object then propagated up the tree */
-		warn, info
+		warn, info,
+		/* Styling strings for tree renderer */
+		style: [/* bold, strike, red, blue, reverse, etc */]
 	};
 
 	const direct = { $on, $off, $component, bind, unbind, close, wait_for_ready, warn, info };
@@ -257,6 +259,50 @@ function ComponentWrapper(obj, name) {
 /******************************************************************************/
 
 function tree(component, opts) {
+	const term = {
+		bold: 1,
+		dark: 2,
+		reverse: 3,
+		italic: 4,
+		blink: 5,
+		strike: 9,
+
+		black: 30,
+		red: 31,
+		green: 32,
+		yellow: 33,
+		blue: 34,
+		magenta: 35,
+		cyan: 36,
+		white: 37,
+
+		br_black: 90,
+		br_red: 91,
+		br_green: 92,
+		br_yellow: 93,
+		br_blue: 94,
+		br_magenta: 95,
+		br_cyan: 96,
+		br_white: 97,
+
+		bg_black: 40,
+		bg_red: 41,
+		bg_green: 42,
+		bg_yellow: 43,
+		bg_blue: 44,
+		bg_magenta: 45,
+		bg_cyan: 46,
+		bg_white: 47,
+
+		bg_br_black: 100,
+		bg_br_red: 101,
+		bg_br_green: 102,
+		bg_br_yellow: 103,
+		bg_br_blue: 104,
+		bg_br_magenta: 105,
+		bg_br_cyan: 106,
+		bg_br_white: 107,
+	};
 	const { upward, downward, highlight, ready } = _.assign({ upward: false, downward: true, highlight: component }, opts);
 	const children = [];
 	const t = comp =>
@@ -266,12 +312,19 @@ function tree(component, opts) {
 				` -> ${comp.$component.target.constructor.name}` :
 				'?';
 	const hl = (comp, name) => {
-		const codes = [];
+		const codes = comp.$component.style.map(style => {
+			if (_.has(term, style)) {
+				return term[style];
+			} else {
+				console.warn(`No style defined for "${style}"`);
+				return null;
+			}
+		}).filter(x => x !== null);
 		if (comp === highlight) {
-			codes.push(1, 3);
+			codes.push(term.bold, term.reverse);
 		}
 		if (ready && !comp.$component.self_is_ready()) {
-			codes.push(2, 9);
+			codes.push(term.dark, term.strike);
 		}
 		return codes.length ? `\x1b[${codes.join(';')}m${name}\x1b[0m` : name;
 	};
@@ -307,18 +360,21 @@ function demo() {
 	A.prototype.constructor = A;
 	function A() {
 		Component.call(this, 'A', true);
+		this.$component.style = ['cyan'];
 	}
 
 	B.prototype = new Component();
 	B.prototype.constructor = B;
 	function B() {
 		Component.call(this, 'B', true);
+		this.$component.style = ['magenta'];
 	}
 
 	C.prototype = new Component();
 	C.prototype.constructor = C;
 	function C() {
 		Component.call(this, 'C', false);
+		this.$component.style = ['yellow'];
 	}
 
 	D.prototype = new EventEmitter();
