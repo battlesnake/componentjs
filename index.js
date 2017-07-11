@@ -144,8 +144,9 @@ function Component(name, is_ready) {
 	const wait_for_ready = () =>
 		Promise.all([ready_promise, ...[...components].map(component => component.wait_for_ready())]);
 
-	const warn = data => this.emit('warn', _.assign({ type: 'warn', source: this }, data));
-	const info = data => this.emit('info', _.assign({ type: 'info', source: this }, data));
+	const objectify = x => _.isString(x) ? { message: x } : x;
+	const warn = data => this.emit('warn', _.assign({ type: 'warn', source: this }, objectify(data)));
+	const info = data => this.emit('info', _.assign({ type: 'info', source: this }, objectify(data)));
 
 	const rename = new_name => {
 		if (Component.info) {
